@@ -1,0 +1,91 @@
+import { concat } from "https://deno.land/std/bytes/mod.ts";
+
+interface network_address {
+  time: 4
+  services: 8
+  ip: 16
+  port: 2
+}
+
+interface inventory_vector {
+  type: 4
+  hash: 32
+}
+
+const peer = '58.152.226.237';
+const port = 0x479D; // 18333
+const port_rpc = '18332';
+
+// Server
+const server = new Server({ port: 8080 });
+
+server.on(Event.listen, (server: Deno.Listener) => {
+  let addr = server.addr as Deno.NetAddr;
+  console.log(`Server listen ${addr.hostname}:${addr.port}`);
+});
+
+server.on(Event.connect, (client: Client) => {
+  console.log("New Client -", client.info());
+});
+
+server.on(Event.receive, (client: Client, data: Packet, length: number) => {
+  console.log("Receive -", data.toString());
+});
+
+server.on(Event.close, (client: Client) => {
+  console.log("Client close -", client.info());
+});
+
+server.on(Event.shutdown, Deno.exit);
+server.on(Event.error, Error);
+
+await server.listen();
+
+// Client
+import { Client, Packet, Event } from "https://deno.land/x/tcp_socket@0.0.1/mods.ts";
+const client = new Client({ hostname: peer, port: port });
+
+client.on(Event.connect, (client: Client) => {
+  console.log("Connect", client.conn?.remoteAddr);
+  // Hello
+  let data = concat(
+    new Uint8Array([/* testnet */ 0xDA, 0xB5, 0xBF, 0xFA, /* version cmd */, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6F, 0x6E, 0x00, 0x00, 0x00, 0x00, 0x00]),
+    new Uint8Array([/* size */ 0x64, 0x00, 0x00, 0x00]),
+    new Uint8Array(checksum()],
+    new Uint8Array(/* protocol version */ 0x62, 0xEA, 0x00, 0x00, /* NODE_NETWORK services */ 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]),
+    new Uint8Array([swapEndian(+new Date())])
+
+  await client.write(data);
+});
+
+client.on(Event.receive, (client: Client, data: Packet) => {
+  console.log("Receive", data.toString());
+});
+
+client.on(Event.close, (client: Client) => {
+  console.log("Close");
+});
+
+client.on(Event.error, Error);
+
+// https://codegolf.stackexchange.com/a/149069
+function swapEndian(n,p=0,t=4)=>t?f(n>>>8,p*256+n%256,t-1):p;
+
+}
+/*
+Message Header:
+ DA B5 BF FA                                                                   - Test network magic bytes
+ 76 65 72 73 69 6F 6E 00 00 00 00 00                                           - "version" command
+ 64 00 00 00                                                                   - Payload is 100 bytes long
+ 35 8d 49 32                                                                   - payload checksum (little endian)
+
+Version message:
+ 62 EA 00 00                                                                   - 60002 (protocol version 60002)
+ 01 00 00 00 00 00 00 00                                                       - 1 (NODE_NETWORK services)
+ 11 B2 D0 50 00 00 00 00                                                       - Tue Dec 18 10:12:33 PST 2012
+ (Service NODE_NETWORK) 01 00 00 00 00 00 00 00 | (IP ADDRESS) 00 00 00 00 00 00 00 00 00 00 FF FF 00 00 | (PORT) 00 00 47 9D - Recipient address info - see Network Address
+ 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 FF FF 00 00 00 00 47 9D - Sender address info - see Network Address
+ 3B 2E B3 5D 8C E6 17 65                                                       - Node ID/Nonce
+ 0F 2F 53 61 74 6F 73 68 69 3A 30 2E 37 2E 32 2F                               - "/Satoshi:0.7.2/" sub-version string (string is 15 bytes long)
+ 00 00 00 00                                                                   - Last block sending node has
+ */
